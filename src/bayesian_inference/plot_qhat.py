@@ -158,10 +158,12 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     elif plot_map:
         ymax = 2*max(qhat_map)
     axes = plt.gca()
-    axes.set_ylim([ymin, ymax])
-    plt.legend(title=f'{label}, {config.parameterization}', title_fontsize=12,
-               loc='upper right', fontsize=12)
+    #axes.set_ylim([ymin, ymax])
+    axes.set_ylim([0, 12])
+    plt.legend(title=f'{label}', title_fontsize=12,
+               loc='upper right', fontsize=12, frameon=False)
 
+    plt.tight_layout()
     plt.savefig(f'{plot_dir}/qhat_{suffix}.pdf')
     plt.close('all')
 
@@ -284,8 +286,9 @@ def qhat(posterior_samples, config, T=0, E=0) -> float:
         if scale_net < 1.0:
             scale_net = 1.0
 
-        # alpha_s should be taken as 2*E*T, per Abhijit
+        # Q_2 should be taken as 2*E*T for the running alpha_s, per Abhijit
         # See: https://jetscapeworkspace.slack.com/archives/C025X5NE9SN/p1648404101376299
+        # TODO: July 2024 - this needs to be checked - unclear is this is quite appropriate/correct...
         square_lambda_QCD_HTL = np.exp( -12.0 * np.pi/( (33 - 2 * active_flavor) * scale_net) )
         running_alpha_s = 12.0 * np.pi/( (33.0 - 2.0 * active_flavor) * np.log(scale_net/square_lambda_QCD_HTL) )
         if scale_net < 1.0:
