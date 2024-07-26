@@ -17,26 +17,26 @@ from bayesian_inference import emulation
 logger = logging.getLogger(__name__)
 
 
-min = None
-max = None
-emulation_config = None
-emulation_results = None
-experimental_results = None
-emulator_cov_unexplained = None
+g_min = None
+g_max = None
+g_emulation_config = None
+g_emulation_results = None
+g_experimental_results = None
+g_emulator_cov_unexplained = None
 
 def initialize_pool_variables(local_min, local_max, local_emulation_config, local_emulation_results, local_experimental_results, local_emulator_cov_unexplained) -> None:
-    global min  # noqa: PLW0603
-    global max  # noqa: PLW0603
-    global emulation_config  # noqa: PLW0603
-    global emulation_results  # noqa: PLW0603
-    global experimental_results  # noqa: PLW0603
-    global emulator_cov_unexplained  # noqa: PLW0603
-    min = local_min
-    max = local_max
-    emulation_config = local_emulation_config
-    emulation_results = local_emulation_results
-    experimental_results = local_experimental_results
-    emulator_cov_unexplained = local_emulator_cov_unexplained
+    global g_min  # noqa: PLW0603
+    global g_max  # noqa: PLW0603
+    global g_emulation_config  # noqa: PLW0603
+    global g_emulation_results  # noqa: PLW0603
+    global g_experimental_results  # noqa: PLW0603
+    global g_emulator_cov_unexplained  # noqa: PLW0603
+    g_min = local_min
+    g_max = local_max
+    g_emulation_config = local_emulation_config
+    g_emulation_results = local_emulation_results
+    g_experimental_results = local_experimental_results
+    g_emulator_cov_unexplained = local_emulator_cov_unexplained
 
 
 #---------------------------------------------------------------
@@ -61,26 +61,26 @@ def log_posterior(X):
     log_posterior = np.zeros(X.shape[0])
 
     # Check if any samples are outside the parameter bounds, and set log-posterior to -inf for those
-    inside = np.all((X > min) & (X < max), axis=1)
+    inside = np.all((X > g_min) & (X < g_max), axis=1)
     log_posterior[~inside] = -np.inf
 
     # Evaluate log-posterior for samples inside parameter bounds
     n_samples = np.count_nonzero(inside)
-    n_features = experimental_results['y'].shape[0]
+    n_features = g_experimental_results['y'].shape[0]
 
     if n_samples > 0:
 
         # Get experimental data
-        data_y = experimental_results['y']
-        data_y_err = experimental_results['y_err']
+        data_y = g_experimental_results['y']
+        data_y_err = g_experimental_results['y_err']
 
         # Compute emulator prediction
         # Returns dict of matrices of emulator predictions:
         #     emulator_predictions['central_value'] -- (n_samples, n_features)
         #     emulator_predictions['cov'] -- (n_samples, n_features, n_features)
-        emulator_predictions = emulation.predict(X[inside], emulation_config,
-                                                 emulation_group_results=emulation_results,
-                                                 emulator_cov_unexplained=emulator_cov_unexplained)
+        emulator_predictions = emulation.predict(X[inside], g_emulation_config,
+                                                 emulation_group_results=g_emulation_results,
+                                                 emulator_cov_unexplained=g_emulator_cov_unexplained)
 
         # Construct array to store the difference between emulator prediction and experimental data
         # (using broadcasting to subtract each data point from each emulator prediction)
