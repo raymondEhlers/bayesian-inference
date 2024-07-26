@@ -36,15 +36,15 @@ dependencies = [
     "statsmodels>=0.14.0",
 ]
 
-# NOTE: If moving to hatch, move this to "[project.optional-dependencies]"
-[tool.pdm.dev-dependencies]
+[project.optional-dependencies]
 dev = [
-    "ruff>=0.0.209",
+    "ruff >=0.0.209",
     "black >=22.1.0",
     "mypy >=0.931",
     "ipython >=8.0",
     "ipykernel >=6.15.1",
-    "pytest>=7.4.0",
+    "pytest >=7.4.0",
+    "pocoMC >=1.2.2",
 ]
 
 [tool.hatch]
