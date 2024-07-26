@@ -6,6 +6,7 @@ authors: J.Mulligan, R.Ehlers
 
 import logging
 from pathlib import Path
+from typing import Final
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -260,12 +261,42 @@ def _plot_single_parameter_observable_sensitivity(map_parameters, i_parameter, p
                                       linewidth=1, ymin=-5, ymax=5, ylabel=ylabel, plot_exp_data=False, bar_plot=True)
 
 #---------------------------------------------------------------
+def _running_alpha_s(mu_square: float | npt.NDArray[np.float64], alpha_s: float | npt.NDArray[np.float64]) -> float | npt.NDArray[np.float64]:
+    """ Running alpha_s for HTL-qhat
+
+    Extracted from MATTER:
+    https://github.com/JETSCAPE/JETSCAPE/blob/935b69291f0fd319f42dc6a9fb5960a4f814e16f/src/jet/Matter.cc#L3944-L3953
+
+    We have a separate implementation verified by the theorists:
+    https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L10-L19
+
+    Note:
+        lambda_square_QCD_HTL is determined using alpha^fix_s such that the running alpha_s
+        coincide with alpha^fix_s at scale mu^2= 1 GeV^2.
+
+    Args:
+        mu_square: Virtuality of the parton.
+        alpha_s: Coupling constant (here, this is will be alpha^fix_s).
+
+    Returns:
+        float: running alpha_s
+    """
+    if mu_square <= 1.0:
+        return alpha_s
+
+    active_flavor: Final[int] = 3
+    square_lambda_QCD_HTL = np.exp(-12 * np.pi / ((33 - 2 * active_flavor) * alpha_s))
+    return 12 * np.pi / ((33 - 2 * active_flavor) * np.log(mu_square / square_lambda_QCD_HTL))
+
+
+#---------------------------------------------------------------
 def qhat_over_T_cubed(posterior_samples, config, T=0, E=0) -> float:
     '''
     Evaluate qhat/T^3 from posterior samples of parameters,
     for fixed E and T
 
-    See: https://github.com/raymondEhlers/STAT/blob/1b0df83a9fd479f8110fd326ae26c0ce002a1109/run_analysis_base.py
+    See: https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L21-L35
+    (which itself is derived from the MATTER code in jetscape).
 
     :param 2darray parameters: posterior samples of parameters -- shape (n_samples, n_params)
     :return 1darray: qhat/T^3 -- shape (n_samples,)
@@ -276,26 +307,30 @@ def qhat_over_T_cubed(posterior_samples, config, T=0, E=0) -> float:
 
     if config.parameterization == "exponential":
 
+        # Inputs
         alpha_s_fix = posterior_samples[:,0]
-        active_flavor = 3
-        C_a = 3.0  # Extracted from JetScapeConstants
+        # Constants
+        active_flavor: Final[int] = 3
+        # The JETSCAPE framework calculates qhat using the gluon Casimir factor, but
+        # we by convention we typically report the quark qhat value, so we need to use
+        # the quark Casimir factor.
+        C_a: Final[float] = 4.0 / 3.0
 
         # From GeneralQhatFunction
-        debye_mass_square = alpha_s_fix * 4 * np.pi * np.power(T, 2.0) * (6.0 + active_flavor) / 6.0
-        scale_net = 2 * E * T
-        if scale_net < 1.0:
-            scale_net = 1.0
+        debye_mass_square = alpha_s_fix * 4 * np.pi * np.power(T, 2.0) * (6.0 + active_flavor) / 6
+        # This is the virtuality of the parton
+        # See info from Abhijit here: https://jetscapeworkspace.slack.com/archives/C025X5NE9SN/p1648404101376299
+        # as well as Yi's code:
+        # https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L21-L35
+        scale_net = np.maximum(2 * E * T, 1.0)
 
-        # Q_2 should be taken as 2*E*T for the running alpha_s, per Abhijit
-        # See: https://jetscapeworkspace.slack.com/archives/C025X5NE9SN/p1648404101376299
-        # TODO: July 2024 - this needs to be checked - unclear is this is quite appropriate/correct...
-        square_lambda_QCD_HTL = np.exp( -12.0 * np.pi/( (33 - 2 * active_flavor) * scale_net) )
-        running_alpha_s = 12.0 * np.pi/( (33.0 - 2.0 * active_flavor) * np.log(scale_net/square_lambda_QCD_HTL) )
-        if scale_net < 1.0:
-            running_alpha_s = scale_net
+        running_alpha_s = _running_alpha_s(scale_net, alpha_s_fix)
         answer = (C_a * 50.4864 / np.pi) * running_alpha_s * alpha_s_fix * np.abs(np.log(scale_net / debye_mass_square))
 
-        return answer * 0.19732698   # 1/GeV to fm
+        # If we wanted to return just qhat (rather than qhat/T^3), we could use the following conversion:
+        #return answer * 0.19732698   # 1/GeV to fm
+        # qhat/T^3 is dimensionless, so we don't need to convert units
+        return answer  # noqa: RET504
 
     msg = f"qhat_over_T_cubed not implemented for parameterization: {config.parameterization}"
     raise RuntimeError(msg)
