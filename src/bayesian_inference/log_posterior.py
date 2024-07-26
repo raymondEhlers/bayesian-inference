@@ -1,7 +1,8 @@
 """Define the likelihood separately for performance reasons
 
-In doing so, we can use global variables. This isn't a nice thing to do, but it may improve MCMC performance
-during multiprocessing.
+In doing so, we can use global variables. This isn't a nice thing to do from a coding perspective,
+but it gives a significant improvement in MCMC performance during multiprocessing.
+For the initial concept, see: https://emcee.readthedocs.io/en/stable/tutorials/parallel/#parallel
 
 .. codeauthor:: Raymond Ehlers <raymond.ehlers@cern.ch>, LBL/UCB
 .. codeauthor:: James Mulligan
