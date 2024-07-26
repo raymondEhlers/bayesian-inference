@@ -82,13 +82,13 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
         suffix = f'E{E}'
         label = f'E = {E} GeV'
         x_array = np.linspace(0.16, 0.5, n_x)
-        qhat_posteriors = np.array([qhat(posterior_samples, config, T=T, E=E) for T in x_array])
+        qhat_posteriors = np.array([qhat_over_T_cubed(posterior_samples, config, T=T, E=E) for T in x_array])
     elif T:
         xlabel = 'E (GeV)'
         suffix = f'T{T}'
         label = f'T = {T} GeV'
         x_array = np.linspace(5, 200, n_x)
-        qhat_posteriors = np.array([qhat(posterior_samples, config, T=T, E=E) for E in x_array])
+        qhat_posteriors = np.array([qhat_over_T_cubed(posterior_samples, config, T=T, E=E) for E in x_array])
 
     # Plot mean qhat values for each T or E
     if plot_mean:
@@ -99,9 +99,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     # Plot the MAP value as well for each T or E
     if plot_map:
         if E:
-            qhat_map = np.array([qhat(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for T in x_array])
+            qhat_map = np.array([qhat_over_T_cubed(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for T in x_array])
         elif T:
-            qhat_map = np.array([qhat(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for E in x_array])
+            qhat_map = np.array([qhat_over_T_cubed(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for E in x_array])
         plt.plot(x_array, qhat_map, sns.xkcd_rgb['medium green'],
                 linewidth=2., linestyle='--', label='MAP')
 
@@ -121,9 +121,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
 
         # Compute qhat for each sample, as a function of T or E
         if E:
-            qhat_priors = np.array([qhat(prior_samples, config, T=T, E=E) for T in x_array])
+            qhat_priors = np.array([qhat_over_T_cubed(prior_samples, config, T=T, E=E) for T in x_array])
         elif T:
-            qhat_priors = np.array([qhat(prior_samples, config, T=T, E=E) for E in x_array])
+            qhat_priors = np.array([qhat_over_T_cubed(prior_samples, config, T=T, E=E) for E in x_array])
 
         # Get credible interval for each T or E
         h_prior = [mcmc.credible_interval(qhat_values, confidence=cred_level) for qhat_values in qhat_priors]
@@ -137,9 +137,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     #   boolean array (as a fcn of T or E) of whether the truth value is contained within credible region
     if target_design_point.any():
         if E:
-            qhat_truth = [qhat(target_design_point, config, T=T, E=E) for T in x_array]
+            qhat_truth = [qhat_over_T_cubed(target_design_point, config, T=T, E=E) for T in x_array]
         elif T:
-            qhat_truth = [qhat(target_design_point, config, T=T, E=E) for E in x_array]
+            qhat_truth = [qhat_over_T_cubed(target_design_point, config, T=T, E=E) for E in x_array]
         plt.plot(x_array, qhat_truth, sns.xkcd_rgb['pale red'],
                 linewidth=2., label='Target')
 
@@ -260,7 +260,7 @@ def _plot_single_parameter_observable_sensitivity(map_parameters, i_parameter, p
                                       linewidth=1, ymin=-5, ymax=5, ylabel=ylabel, plot_exp_data=False, bar_plot=True)
 
 #---------------------------------------------------------------
-def qhat(posterior_samples, config, T=0, E=0) -> float:
+def qhat_over_T_cubed(posterior_samples, config, T=0, E=0) -> float:
     '''
     Evaluate qhat/T^3 from posterior samples of parameters,
     for fixed E and T
