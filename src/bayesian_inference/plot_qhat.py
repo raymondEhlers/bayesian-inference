@@ -1,23 +1,20 @@
-#! /usr/bin/env python
 '''
-Module related to generate qhat plots
+Module related to generating qhat plots
 
 authors: J.Mulligan, R.Ehlers
 '''
 
 import logging
-import os
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
-
-from matplotlib import pyplot as plt
+import numpy.typing as npt
 import seaborn as sns
-sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
-from bayesian_inference import data_IO
-from bayesian_inference import emulation
-from bayesian_inference import mcmc
-from bayesian_inference import plot_utils
+from bayesian_inference import data_IO, emulation, mcmc, plot_utils
+
+sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +28,7 @@ def plot(config):
     '''
 
     # Check if mcmc.h5 file exists
-    if not os.path.exists(config.mcmc_outputfile):
+    if not Path(config.mcmc_outputfile).exists():
         logger.info(f'MCMC output does not exist: {config.mcmc_outputfile}')
         return
 
@@ -41,9 +38,8 @@ def plot(config):
     posterior = results['chain'].reshape((n_walkers*n_steps, n_params))
 
     # Plot output dir
-    plot_dir = os.path.join(config.output_dir, 'plot_qhat')
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
+    plot_dir = Path(config.output_dir) / 'plot_qhat'
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     # qhat plots
     plot_qhat(posterior, plot_dir, config, E=100, cred_level=0.9, n_samples=1000)
@@ -54,7 +50,7 @@ def plot(config):
 
 #---------------------------------------------------------------[]
 def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=5000, n_x=50,
-              plot_prior=True, plot_mean=True, plot_map=False, target_design_point=np.array([])):
+              plot_prior=True, plot_mean=True, plot_map=False, target_design_point: npt.NDArray[np.int64] | None = None):
     '''
     Plot qhat credible interval from posterior samples,
     as a function of either E or T (with the other held fixed)
@@ -67,12 +63,16 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     :param int n_x: number of T or E points to plot
     :param 1darray target_design_point: if closure test, design point corresponding to "truth" qhat value
     '''
+    # Validation
+    if target_design_point is None:
+        target_design_point = np.array([])
 
     # Sample posterior parameters without replacement
     if posterior.shape[0] < n_samples:
         n_samples = posterior.shape[0]
         logger.warning(f'Not enough posterior samples to plot {n_samples} samples, using {n_samples} instead')
-    idx = np.random.choice(posterior.shape[0], size=n_samples, replace=False)
+    rng = np.random.default_rng()
+    idx = rng.choice(posterior.shape[0], size=n_samples, replace=False)
     posterior_samples = posterior[idx,:]
 
     # Compute qhat for each sample (as well as MAP value), as a function of T or E
@@ -297,6 +297,9 @@ def qhat_over_T_cubed(posterior_samples, config, T=0, E=0) -> float:
 
         return answer * 0.19732698   # 1/GeV to fm
 
+    msg = f"qhat_over_T_cubed not implemented for parameterization: {config.parameterization}"
+    raise RuntimeError(msg)
+
 #---------------------------------------------------------------
 def _generate_prior_samples(config, n_samples=100):
     '''
@@ -319,7 +322,8 @@ def _generate_prior_samples(config, n_samples=100):
             parameter_max[i] = np.log(parameter_max[i])
 
     # Generate uniform samples
-    samples = np.random.uniform(parameter_min, parameter_max, (n_samples, n_params))
+    rng = np.random.default_rng()
+    samples = rng.uniform(parameter_min, parameter_max, (n_samples, n_params))
 
     # Transform log(c1,c2,c3) back to c1,c2,c3
     for i,name in enumerate(names):
