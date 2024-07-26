@@ -3,7 +3,8 @@
 In doing so, we can use global variables. This isn't a nice thing to do, but it may improve MCMC performance
 during multiprocessing.
 
-
+.. codeauthor:: Raymond Ehlers <raymond.ehlers@cern.ch>, LBL/UCB
+.. codeauthor:: James Mulligan
 """
 
 import logging
@@ -24,12 +25,12 @@ experimental_results = None
 emulator_cov_unexplained = None
 
 def initialize_pool_variables(local_min, local_max, local_emulation_config, local_emulation_results, local_experimental_results, local_emulator_cov_unexplained) -> None:
-    global min 
-    global max
-    global emulation_config
-    global emulation_results
-    global experimental_results
-    global emulator_cov_unexplained
+    global min  # noqa: PLW0603
+    global max  # noqa: PLW0603
+    global emulation_config  # noqa: PLW0603
+    global emulation_results  # noqa: PLW0603
+    global experimental_results  # noqa: PLW0603
+    global emulator_cov_unexplained  # noqa: PLW0603
     min = local_min
     max = local_max
     emulation_config = local_emulation_config
@@ -77,7 +78,7 @@ def log_posterior(X):
         # Returns dict of matrices of emulator predictions:
         #     emulator_predictions['central_value'] -- (n_samples, n_features)
         #     emulator_predictions['cov'] -- (n_samples, n_features, n_features)
-        emulator_predictions = emulation.predict(X[inside], emulation_config, 
+        emulator_predictions = emulation.predict(X[inside], emulation_config,
                                                  emulation_group_results=emulation_results,
                                                  emulator_cov_unexplained=emulator_cov_unexplained)
 
@@ -123,24 +124,21 @@ def _loglikelihood(y, cov):
     L, info = lapack.dpotrf(cov, clean=False)
 
     if info < 0:
-        raise ValueError(
-            'lapack dpotrf error: '
-            'the {}-th argument had an illegal value'.format(-info)
-        )
-    elif info < 0:
-        raise np.linalg.LinAlgError(
-            'lapack dpotrf error: '
-            'the leading minor of order {} is not positive definite'
-            .format(info)
-        )
+        msg = 'lapack dpotrf error: '
+        msg += f'the {-info}-th argument had an illegal value'
+        raise ValueError(msg)
+    if info < 0:
+        msg = 'lapack dpotrf error: '
+        msg += f'the leading minor of order {info} is not positive definite'
+        raise np.linalg.LinAlgError(msg)
 
     # Solve for alpha = cov^-1.y using the Cholesky decomp.
     alpha, info = lapack.dpotrs(L, y)
 
     if info != 0:
+        msg = 'lapack dpotrs error: '
+        msg += f'the {-info}-th argument had an illegal value'
         raise ValueError(
-            'lapack dpotrs error: '
-            'the {}-th argument had an illegal value'.format(-info)
         )
 
     return -.5*np.dot(y, alpha) - np.log(L.diagonal()).sum()
