@@ -211,7 +211,7 @@ def write_emulators(config: EmulationGroupConfig, output_dict: dict[str, Any]) -
 	    pickle.dump(output_dict, f)
 
 ####################################################################################################################
-def compute_emulator_cov_unexplained(emulation_config, emulation_results):
+def compute_emulator_cov_unexplained(emulation_config, emulation_results) -> dict:
     '''
     Compute the predictive variance due to PC truncation, for all emulator groups.
     See further details in compute_emulator_group_cov_unexplained().
