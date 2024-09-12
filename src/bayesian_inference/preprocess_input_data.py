@@ -156,6 +156,75 @@ def smooth_statistical_outliers_in_predictions(
 
     return new_observables
 
+_IMPLEMENTED_INTERPOLATION_METHODS = ["linear", "cubic_spline"]
+
+
+class CannotInterpolateDueToOnePointError(Exception):
+    """ Error raised when we can't interpolate due to only one point. """
+
+
+def perform_interpolation_on_values(
+    bin_centers: npt.NDArray[np.float64],
+    values_to_interpolate: npt.NDArray[np.float64],
+    points_to_interpolate: list[int],
+    smoothing_interpolation_method: str,
+) -> npt.NDArray[np.float64]:
+    """ Perform interpolation on the requested points to interpolate.
+
+    Args:
+        bin_centers: The bin centers for the observable.
+        values_to_interpolate: The values to interpolate.
+        points_to_interpolate: The points (i.e. bin centers) to interpolate.
+        smoothing_interpolation_method: The method to use for interpolation. Options:
+            ["linear", "cubic_spline"].
+
+    Returns:
+        The values that are interpolated at points_to_interpolate. They cna be inserted into the
+            original values_to_interpolate array via `values_to_interpolate[points_to_interpolate] = interpolated_values`.
+
+    Raises:
+        CannotInterpolateDueToOnePointError: Raised when we can't interpolate due to only
+            one point being left.
+    """
+    # Validation for methods
+    if smoothing_interpolation_method not in _IMPLEMENTED_INTERPOLATION_METHODS:
+        msg = f"Unrecognized interpolation method {smoothing_interpolation_method}."
+        raise ValueError(msg)
+
+    # We want to train the interpolation only on all good points, so we take them out.
+    # Otherwise, it will negatively impact the interpolation.
+    mask = np.ones_like(bin_centers, dtype=bool)
+    mask[points_to_interpolate] = False
+
+    # Further validation
+    if len(bin_centers[mask]) == 1:
+        # Skip - we can't interpolate one point.
+        msg = f"Can't interpolate due to only one point left to anchor the interpolation. {mask=}"
+        raise CannotInterpolateDueToOnePointError(msg)
+
+    # NOTE: ROOT::Interpolator uses a Cubic Spline, so this might be a reasonable future approach
+    #       However, I think it's slower, so we'll start with this simple approach.
+    # TODO: We entirely ignore the interpolation error here. Some approaches for trying to account for it:
+    #       - Attempt to combine the interpolation error with the statistical error
+    #       - Randomly remove a few percent of the points which are used for estimating the interpolation,
+    #         and then see if there are significant changes in the interpolated parameters
+    #       - Could vary some parameters (perhaps following the above) and perform the whole
+    #         Bayesian analysis, again looking for how much the determined parameters change.
+    if smoothing_interpolation_method == "linear":
+        interpolated_values = np.interp(
+            bin_centers[points_to_interpolate],
+            bin_centers[mask],
+            values_to_interpolate[mask],
+        )
+    elif smoothing_interpolation_method == "cubic_spline":
+        cs = scipy.interpolate.CubicSpline(
+            bin_centers[mask],
+            values_to_interpolate[mask],
+        )
+        interpolated_values = cs(bin_centers[points_to_interpolate])
+
+    return interpolated_values
+
 
 def _smooth_statistical_outliers_in_predictions(
     all_observables: dict[str, dict[str, dict[str, Any]]],
@@ -243,15 +312,16 @@ def _smooth_statistical_outliers_in_predictions(
 
             #logger.info(f"Method: {outlier_identification_method}, Interpolating outliers with {outlier_features_to_interpolate_per_design_point=}, {key_type=}, {observable_key=}, {prediction_key=}")
             for design_point, points_to_interpolate in outlier_features_to_interpolate_per_design_point.items():
-                # We want to train the interpolation only on all good points, so we make them out.
-                # Otherwise, it will negatively impact the interpolation.
-                mask = np.ones_like(observable_bin_centers, dtype=bool)
-                mask[points_to_interpolate] = False
-
-                # Validation
-                if len(observable_bin_centers[mask]) == 1:
-                    # Skip - we can't interpolate one point.
-                    msg = f"Skipping observable \"{observable_key}\", {design_point=} because it has only one point to anchor the interpolation. {mask=}"
+                try:
+                    interpolated_values = perform_interpolation_on_values(
+                        bin_centers=observable_bin_centers,
+                        values_to_interpolate=new_observables[prediction_key][observable_key][key_type][:, design_point],
+                        points_to_interpolate=points_to_interpolate,
+                        smoothing_interpolation_method=preprocessing_config.smoothing_interpolation_method,
+                    )
+                    new_observables[prediction_key][observable_key][key_type][points_to_interpolate, design_point] = interpolated_values
+                except CannotInterpolateDueToOnePointError as e:
+                    msg = f"Skipping observable \"{observable_key}\", {design_point=} because {e}"
                     logger.info(msg)
                     # And add to the list since we can't make it work.
                     if observable_key not in outliers_we_are_unable_to_remove:
@@ -260,29 +330,6 @@ def _smooth_statistical_outliers_in_predictions(
                         outliers_we_are_unable_to_remove[observable_key][design_point] = set()
                     outliers_we_are_unable_to_remove[observable_key][design_point].update(points_to_interpolate)
                     continue
-
-                # NOTE: ROOT::Interpolator uses a Cubic Spline, so this might be a reasonable future approach
-                #       However, I think it's slower, so we'll start with this simple approach.
-                # TODO: We entirely ignore the interpolation error here. Some approaches for trying to account for it:
-                #       - Attempt to combine the interpolation error with the statistical error
-                #       - Randomly remove a few percent of the points which are used for estimating the interpolation,
-                #         and then see if there are significant changes in the interpolated parameters
-                #       - Could vary some parameters (perhaps following the above) and perform the whole
-                #         Bayesian analysis, again looking for how much the determined parameters change.
-                if preprocessing_config.smoothing_interpolation_method == "linear":
-                    interpolated_values = np.interp(
-                        observable_bin_centers[points_to_interpolate],
-                        observable_bin_centers[mask],
-                        new_observables[prediction_key][observable_key][key_type][:, design_point][mask],
-                    )
-                elif preprocessing_config.smoothing_interpolation_method == "cubic_spline":
-                    cs = scipy.interpolate.CubicSpline(
-                        observable_bin_centers[mask],
-                        new_observables[prediction_key][observable_key][key_type][:, design_point][mask],
-                    )
-                    interpolated_values = cs(observable_bin_centers[points_to_interpolate])
-
-                new_observables[prediction_key][observable_key][key_type][points_to_interpolate, design_point] = interpolated_values
 
     # Reformat the outliers_we_are_unable_to_remove to be more useful and readable
     #logger.info(
@@ -493,7 +540,7 @@ class PreprocessingConfig(common_base.CommonBase):
         self.smoothing_outliers_config = OutliersConfig(n_RMS=smoothing_parameters["outlier_n_RMS"])
         self.smoothing_interpolation_method = smoothing_parameters["interpolation_method"]
         # Validation
-        if self.smoothing_interpolation_method not in ["linear", "cubic_spline"]:
+        if self.smoothing_interpolation_method not in _IMPLEMENTED_INTERPOLATION_METHODS:
             msg = f"Unrecognized interpolation method {self.smoothing_interpolation_method}."
             raise ValueError(msg)
         self.smoothing_max_n_feature_outliers_to_interpolate = smoothing_parameters["max_n_feature_outliers_to_interpolate"]
