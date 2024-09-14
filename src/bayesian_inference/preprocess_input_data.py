@@ -100,6 +100,115 @@ def _find_physics_motivated_outliers(
     logger.warning(f"ad-hoc points to exclude: {sorted(i_design_point_to_exclude)}")
 
 
+def find_and_smooth_outliers_standalone(
+    observable_key: str,
+    bin_centers: npt.NDArray[np.float64],
+    values: npt.NDArray[np.float64],
+    y_err: npt.NDArray[np.float64],
+    outliers_identification_methods: dict[str, OutliersConfig],
+    smoothing_interpolation_method: str,
+    max_n_points_to_interpolate: int,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[int, set[int]]]:
+    """ A standalone function to identify outliers and smooth them.
+
+    Careful: If you remove design points, you'll need to make sure to keep careful track of the indices!
+
+    Note:
+        For the outliers that we are unable to remove, it's probably best to exclude the design point entirely.
+        However, you'll have to take care of it separately.
+
+    Args:
+        observable_key: The key for the observable we're looking at. Just a name for bookkeeping.
+        bin_centers: The bin centers for the observable.
+        values: The values of the observable, for all design points.
+        y_err: The uncertainties on the values of the observable, for all design points.
+        outliers_identification_methods: The methods to use for identifying outliers. Keys are the methods, while the values
+            are the parameters. Key options: {"large_statistical_errors": OutliersConfig, "large_central_value_difference": OutliersConfig}.
+        smoothing_interpolation_method: The method to use for interpolation. Options: ["linear", "cubic_spline"].
+        max_n_points_to_interpolate: The maximum number of points to interpolate in a row.
+
+    Returns:
+        The smoothed values and uncertainties, and the outliers which we are unable to remove ({feature_index: set(design_point_index)}).
+    """
+    # Validation
+    for outlier_identification_method in outliers_identification_methods:
+        if outlier_identification_method not in ["large_statistical_errors", "large_central_value_difference"]:
+            msg = f"Unrecognized smoothing method {outlier_identification_method}."
+            raise ValueError(msg)
+    if len(bin_centers) == 1:
+        # Skip - we can't interpolate one point.
+        msg = f"Skipping observable \"{observable_key}\" because it has only one point."
+        logger.debug(msg)
+        raise ValueError(msg)
+
+    # Setup
+    outliers_we_are_unable_to_remove: dict[int, set[int]] = {}
+    values = np.array(values, copy=True)
+    y_err = np.array(y_err, copy=True)
+
+    # Identify outliers
+    #outliers = (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64))
+    outliers = np.zeros((0, 2), dtype=np.int64)
+    for outlier_identification_method, outliers_config in outliers_identification_methods.items():
+        # First, find the outliers based on the selected method
+        if outlier_identification_method == "large_statistical_errors":
+            # large statistical uncertainty points
+            new_outliers = _find_large_statistical_uncertainty_points(
+                values=values,
+                y_err=y_err,
+                outliers_config=outliers_config,
+            )
+        elif outlier_identification_method == "large_central_value_difference":
+            # Find additional outliers based on central values which are dramatically different than the others
+            if len(values) > 2:
+                new_outliers = _find_outliers_based_on_central_values(
+                    values=values,
+                    outliers_config=outliers_config,
+                )
+            else:
+                new_outliers = ((), ())  # type: ignore[assignment]
+        else:
+            msg = f"Unrecognized outlier identification mode {outlier_identification_method}."
+            raise ValueError(msg)
+        # Merge the outliers together, taking care to deduplicate outlier values that may be stored in each array
+        combined_indices = np.concatenate((outliers, np.column_stack(new_outliers)), axis=0)
+        outliers = np.unique(combined_indices, axis=0)
+
+    # If needed, can split outliers back into the two arrays
+    #outliers_feature_indices, outliers_design_point_indices = outliers[:, 0], outliers[:, 0]
+    outlier_features_to_interpolate_per_design_point, _intermediate_outliers_we_are_unable_to_remove = _perform_QA_and_reformat_outliers(
+        observable_key=observable_key,
+        outliers=(outliers[:, 0], outliers[:, 1]),
+        smoothing_max_n_feature_outliers_to_interpolate=max_n_points_to_interpolate,
+    )
+    # And keep track of them
+    outliers_we_are_unable_to_remove.update(_intermediate_outliers_we_are_unable_to_remove.get(observable_key, {}))
+
+    # Perform interpolation
+    for v in [values, y_err]:
+        #logger.info(f"Method: {outlier_identification_method}, Interpolating outliers with {outlier_features_to_interpolate_per_design_point=}, {key_type=}, {observable_key=}, {prediction_key=}")
+        for design_point, points_to_interpolate in outlier_features_to_interpolate_per_design_point.items():
+            try:
+                interpolated_values = perform_interpolation_on_values(
+                    bin_centers=bin_centers,
+                    values_to_interpolate=v[:, design_point],
+                    points_to_interpolate=points_to_interpolate,
+                    smoothing_interpolation_method=smoothing_interpolation_method,
+                )
+                # And assign the interpolated values
+                v[points_to_interpolate, design_point] = interpolated_values
+            except CannotInterpolateDueToOnePointError as e:
+                msg = f"Skipping observable \"{observable_key}\", {design_point=} because {e}"
+                logger.info(msg)
+                # And add to the list since we can't make it work.
+                if design_point not in outliers_we_are_unable_to_remove:
+                    outliers_we_are_unable_to_remove[design_point] = set()
+                outliers_we_are_unable_to_remove[design_point].update(points_to_interpolate)
+                continue
+
+    return values, y_err, outliers_we_are_unable_to_remove
+
+
 def smooth_statistical_outliers_in_predictions(
     preprocessing_config: PreprocessingConfig,
 ) -> dict[str, Any]:
@@ -285,7 +394,7 @@ def _smooth_statistical_outliers_in_predictions(
         outlier_features_to_interpolate_per_design_point, _intermediate_outliers_we_are_unable_to_remove = _perform_QA_and_reformat_outliers(
             observable_key=observable_key,
             outliers=outliers,
-            preprocessing_config=preprocessing_config,
+            smoothing_max_n_feature_outliers_to_interpolate=preprocessing_config.smoothing_max_n_feature_outliers_to_interpolate,
         )
         # Only fill if we actually have something to report
         if observable_key in _intermediate_outliers_we_are_unable_to_remove:
@@ -338,7 +447,7 @@ def _smooth_statistical_outliers_in_predictions(
     # NOTE: The typing is wrong because I based the type annotations on the "Predictions" key only,
     #       since it's more useful here.
     # NOTE: We need to map the i_design_point to the actual design point indices for them to be useful!
-    design_point_array: npt.NDArray[np.intp] = all_observables["Design_indices" + ("_validation" if validation_set else "")]  # type: ignore[assignment]
+    design_point_array: npt.NDArray[np.int64] = all_observables["Design_indices" + ("_validation" if validation_set else "")]  # type: ignore[assignment]
     design_points_we_may_want_to_remove: dict[int, dict[str, set[int]]] = {}
     for observable_key, _v in outliers_we_are_unable_to_remove.items():
         for i_design_point, i_feature in _v.items():
@@ -357,16 +466,17 @@ def _smooth_statistical_outliers_in_predictions(
 
     return new_observables
 
+
 def _perform_QA_and_reformat_outliers(
     observable_key: str,
-    outliers: tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]],
-    preprocessing_config: PreprocessingConfig,
+    outliers: tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]],
+    smoothing_max_n_feature_outliers_to_interpolate: int,
 ) -> tuple[dict[int, list[int]], dict[str, dict[int, set[int]]]]:
     """ Perform QA on identifier outliers, and reformat them for next steps.
 
     :param observable_key: The key for the observable we're looking at.
     :param outliers: The outliers provided by the outlier finder.
-    :param preprocessing_config: Configuration for preprocessing.
+    :param smoothing_max_n_feature_outliers_to_interpolate: The maximum number of points to interpolate in a row.
     """
     # NOTE: This could skip the observable key, but it's convenient because we then have the same
     #       format as the overall dict
@@ -415,7 +525,7 @@ def _perform_QA_and_reformat_outliers(
                 #       eg. one distance(s) of 1 -> two points
                 #           two distance(s) of 1 -> three points (due to set)
                 #           three distance(s) of 1 -> four points (due to set)
-                if len(indices_of_outliers_that_are_one_apart) > preprocessing_config.smoothing_max_n_feature_outliers_to_interpolate:
+                if len(indices_of_outliers_that_are_one_apart) > smoothing_max_n_feature_outliers_to_interpolate:
                     # Since we are looking at the distances, we want to remove the points that make up that distance.
                     accumulated_indices_to_remove.update(indices_of_outliers_that_are_one_apart)
                 else:
@@ -426,7 +536,7 @@ def _perform_QA_and_reformat_outliers(
                     if len(indices_of_outliers_that_are_one_apart) > 0:
                         msg = (
                             f"Will continue with interpolating consecutive indices {indices_of_outliers_that_are_one_apart}"
-                            f" because the their number is within the allowable range (n_consecutive<={preprocessing_config.smoothing_max_n_feature_outliers_to_interpolate})."
+                            f" because the their number is within the allowable range (n_consecutive<={smoothing_max_n_feature_outliers_to_interpolate})."
                         )
                         logger.info(msg)
                 # Reset for the next point
@@ -434,7 +544,7 @@ def _perform_QA_and_reformat_outliers(
         # There are indices left over at the end of the loop which we need to take care of.
         # eg. If all points are considered outliers
         if indices_of_outliers_that_are_one_apart:
-            if len(indices_of_outliers_that_are_one_apart) > preprocessing_config.smoothing_max_n_feature_outliers_to_interpolate:
+            if len(indices_of_outliers_that_are_one_apart) > smoothing_max_n_feature_outliers_to_interpolate:
                 # Since we are looking at the distances, we want to remove the points that make up that distance.
                 #logger.info(f"Ended on {indices_of_outliers_that_are_one_apart=}")
                 accumulated_indices_to_remove.update(indices_of_outliers_that_are_one_apart)
@@ -442,7 +552,7 @@ def _perform_QA_and_reformat_outliers(
         # Now that we've determine which points we want to remove from our interpolation (accumulated_indices_to_remove),
         # let's actually remove them from our list.
         # NOTE: We sort again because sets are not ordered.
-        outlier_features_to_interpolate_per_design_point[k] = sorted(list(set(v) - accumulated_indices_to_remove))
+        outlier_features_to_interpolate_per_design_point[k] = sorted(set(v) - accumulated_indices_to_remove)
         #logger.debug(f"design point {k}: features kept for interpolation: {outlier_features_to_interpolate_per_design_point[k]}")
 
         # And we'll keep track of what we can't interpolate
@@ -458,10 +568,18 @@ def _find_large_statistical_uncertainty_points(
     values: npt.NDArray[np.float64],
     y_err: npt.NDArray[np.float64],
     outliers_config: OutliersConfig,
-) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
     """Find problematic points based on large statistical uncertainty points.
 
     Best to do this observable-by-observable because the relative uncertainty will vary for each one.
+
+    Args:
+        values: The values of the observable, for all design points.
+        y_err: The uncertainties on the values of the observable, for all design points.
+        outliers_config: Configuration for identifying outliers.
+
+    Returns:
+        (n_feature_index, n_design_point_index) of identified outliers
     """
     relative_error = y_err / values
     # This is the rms averaged over all of the design points
@@ -474,7 +592,7 @@ def _find_large_statistical_uncertainty_points(
 def _find_outliers_based_on_central_values(
     values: npt.NDArray[np.float64],
     outliers_config: OutliersConfig,
-) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
     """Find outlier points based on large deviations from close central values."""
     # NOTE: We need abs because we don't care about the sign - we just want a measure.
     diff_between_features = np.abs(np.diff(values, axis=0))
