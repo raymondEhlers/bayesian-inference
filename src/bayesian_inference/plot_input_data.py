@@ -18,7 +18,7 @@ import pandas as pd
 import seaborn as sns
 import statsmodels.api as sm
 
-from bayesian_inference import data_IO, emulation, preprocess_input_data
+from bayesian_inference import data_IO, emulation, outliers_smoothing
 
 
 logger = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ def plot(config: emulation.EmulationConfig):
                 config=config,
                 plot_dir=plot_dir,
                 observable_grouping=ObservableGrouping(observable_by_observable=True),
-                outliers_config=preprocess_input_data.OutliersConfig(n_RMS=4.),
+                outliers_config=outliers_smoothing.OutliersConfig(n_RMS=4.),
                 validation_set=validation_set,
                 observables_filename=observables_filename,
             )
@@ -324,7 +324,7 @@ def _plot_pairplot_correlations(
     config: emulation.EmulationConfig,
     plot_dir: Path,
     observable_grouping: ObservableGrouping | None = None,
-    outliers_config: preprocess_input_data.OutliersConfig | None = None,
+    outliers_config: outliers_smoothing.OutliersConfig | None = None,
     annotate_design_points: bool = False,
     use_experimental_data: bool = False,
     validation_set: bool = False,

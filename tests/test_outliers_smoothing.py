@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest  # noqa: F401
 
-from bayesian_inference import preprocess_input_data
+from bayesian_inference import outliers_smoothing
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,15 @@ def test_smoothing() -> None:
     y_err = np.loadtxt(_data_dir / "tables" / "Prediction" / "Prediction__exponential__5020__PbPb__hadron__pt_ch_cms____0-5__errors.dat", ndmin=2)
 
     # Identify outliers and smooth them
-    output_values, output_y_err, outliers_that_cannot_be_removed = preprocess_input_data.find_and_smooth_outliers_standalone(
+    output_values, output_y_err, outliers_that_cannot_be_removed = outliers_smoothing.find_and_smooth_outliers_standalone(
         observable_key="hadron__pt_ch_cms",
         bin_centers=bin_centers,
         values=values,
         y_err=y_err,
         # Default values as of September 2024
         outliers_identification_methods={
-            "large_statistical_errors": preprocess_input_data.OutliersConfig(n_RMS=2),
-            "large_central_value_difference": preprocess_input_data.OutliersConfig(n_RMS=2),
+            "large_statistical_errors": outliers_smoothing.OutliersConfig(n_RMS=2),
+            "large_central_value_difference": outliers_smoothing.OutliersConfig(n_RMS=2),
         },
         smoothing_interpolation_method="linear",
         max_n_points_to_interpolate=2,
