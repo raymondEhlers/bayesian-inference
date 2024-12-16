@@ -11,6 +11,7 @@ For the initial concept, see: https://emcee.readthedocs.io/en/stable/tutorials/p
 import logging
 
 import numpy as np
+import numpy.typing as npt
 from scipy.linalg import lapack
 
 from bayesian_inference import emulation
@@ -18,12 +19,12 @@ from bayesian_inference import emulation
 logger = logging.getLogger(__name__)
 
 
-g_min = None
-g_max = None
-g_emulation_config = None
-g_emulation_results = None
-g_experimental_results = None
-g_emulator_cov_unexplained = None
+g_min: npt.NDArray[np.float64] = None
+g_max: npt.NDArray[np.float64] = None
+g_emulation_config: emulation.EmulationConfig = None
+g_emulation_results: dict[str, dict[str, npt.NDArray[np.float64]]] = None
+g_experimental_results: dict = None
+g_emulator_cov_unexplained: dict = None
 
 def initialize_pool_variables(local_min, local_max, local_emulation_config, local_emulation_results, local_experimental_results, local_emulator_cov_unexplained) -> None:
     global g_min  # noqa: PLW0603
@@ -41,7 +42,7 @@ def initialize_pool_variables(local_min, local_max, local_emulation_config, loca
 
 
 #---------------------------------------------------------------
-def log_posterior(X):
+def log_posterior(X, *, set_to_infinite_outside_bounds: bool = True) -> npt.NDArray[np.float64]:
     """
     Function to evaluate the log-posterior for a given set of input parameters.
 
@@ -62,8 +63,9 @@ def log_posterior(X):
     log_posterior = np.zeros(X.shape[0])
 
     # Check if any samples are outside the parameter bounds, and set log-posterior to -inf for those
-    inside = np.all((X > g_min) & (X < g_max), axis=1)
-    log_posterior[~inside] = -np.inf
+    inside = np.all((X > g_min) & (X < g_max), axis=1)  # noqa: SIM300
+    # -1e300 is apparently preferred for pocoMC
+    log_posterior[~inside] = -np.inf if set_to_infinite_outside_bounds else -1e300
 
     # Evaluate log-posterior for samples inside parameter bounds
     n_samples = np.count_nonzero(inside)

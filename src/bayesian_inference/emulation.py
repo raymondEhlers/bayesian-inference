@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 '''
 Module related to emulators, with functionality to train and call emulators for a given analysis run
 
