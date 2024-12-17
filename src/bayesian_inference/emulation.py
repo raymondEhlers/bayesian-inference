@@ -110,6 +110,8 @@ def fit_emulator_group(config: EmulationGroupConfig) -> dict[str, Any]:
     max_n_components = config.max_n_components_to_calculate
     if max_n_components is not None:
         logger.info(f"Running with max n_pc={max_n_components}")
+    # NOTE-STAT: Whiten=True, but here, Whiten=False.
+    # NOTE-STAT: RJE thinks this doesn't matter, based on the comments above.
     pca = sklearn_decomposition.PCA(n_components=max_n_components, svd_solver='full', whiten=False) # Include all PCs here, so we can access them later
     # Scale data and perform PCA
     Y_pca = pca.fit_transform(scaler.fit_transform(Y))
@@ -245,12 +247,15 @@ def compute_emulator_group_cov_unexplained(emulation_group_config, emulation_gro
     We will generally pre-compute this once in mcmc.py to save time, although we define this function
     here to allow us to re-compute it as needed if it is not pre-computed (e.g. when plotting).
     '''
+    # TODO: NOTE-STAT: Compare this more carefully with STAT L145 and on.
     pca = emulation_group_result['PCA']['pca']
     S_unexplained = pca.components_.T[:,emulation_group_config.n_pc:]
     D_unexplained = np.diag(pca.explained_variance_[emulation_group_config.n_pc:])
     emulator_cov_unexplained = S_unexplained.dot(D_unexplained.dot(S_unexplained.T))
 
-    return emulator_cov_unexplained
+    # NOTE-STAT: bayesian-inference does not include a small term for numerical stability
+    return emulator_cov_unexplained  # noqa: RET504
+
 
 ####################################################################################################################
 def nd_block_diag(arrays):
@@ -521,6 +526,7 @@ def predict_emulation_group(parameters, results, emulation_group_config, emulato
     # So C_Y[i] = S * C_Y_PCA[i] * S^T.
     # Note: should be equivalent to: https://github.com/jdmulligan/STAT/blob/master/src/emulator.py#L145
     # TODO: one can make this faster with broadcasting/einsum
+    # TODO: NOTE-STAT: Compare this more carefully with STAT L286 and on.
     n_features = pca.components_.shape[1]
     S = pca.components_.T[:,:emulation_group_config.n_pc]
     emulator_cov_reconstructed_scaled = np.zeros((n_samples, n_features, n_features))
