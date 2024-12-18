@@ -91,7 +91,7 @@ def log_posterior(X, *, set_to_infinite_outside_bounds: bool = True) -> npt.NDAr
         dY = emulator_predictions['central_value'] - data_y
 
         # Construct the covariance matrix
-        # TODO: include full experimental data covariance matrix -- currently we only include uncorrelated data uncertainty
+        # NOTE-STAT TODO: include full experimental data covariance matrix -- currently we only include uncorrelated data uncertainty
         #-------------------------
         covariance_matrix = np.zeros((n_samples, n_features, n_features))
         covariance_matrix += emulator_predictions['cov']
@@ -101,6 +101,8 @@ def log_posterior(X, *, set_to_infinite_outside_bounds: bool = True) -> npt.NDAr
         # We take constant priors, so the log-likelihood is just the log-posterior
         # (since above we set the log-posterior to -inf for samples outside the parameter bounds)
         log_posterior[inside] += list(map(_loglikelihood, dY, covariance_matrix))
+
+        # NOTE-STAT: We don't support the extra_std term here.
 
     return log_posterior
 

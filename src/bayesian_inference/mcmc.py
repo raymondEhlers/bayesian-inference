@@ -198,6 +198,7 @@ def _run_using_emcee(
         random_pos = rng.uniform(parameter_min, parameter_max, (config.n_walkers, parameter_ndim))
 
         # Run first half of burn-in
+        # NOTE-STAT: This code doesn't support not doing burn in
         logger.info(f'Parallelizing over {pool._processes} processes...')  # type: ignore[attr-defined]
         logger.info('Starting initial burn-in...')
         nburn0 = config.n_burn_steps // 2
