@@ -12,10 +12,11 @@ import shutil
 import yaml
 from pathlib import Path
 
-from bayesian_inference import data_IO, preprocess_input_data, emulation, mcmc
+from bayesian_inference import data_IO, preprocess_input_data, mcmc
 from bayesian_inference import plot_input_data, plot_emulation, plot_mcmc, plot_qhat, plot_closure, plot_analyses
 
 from bayesian_inference import common_base, helpers
+from bayesian_inference.emulation import base
 
 logger = logging.getLogger(__name__)
 
@@ -138,13 +139,13 @@ class SteerAnalysis(common_base.CommonBase):
                         progress.start_task(emulation_task)
                         logger.info('------------------------------------------------------------------------')
                         logger.info(f'Fitting emulators for {analysis_name}_{parameterization}...')
-                        emulation_config = emulation.EmulationConfig.from_config_file(
+                        emulation_config = base.EmulationConfig.from_config_file(
                             analysis_name=analysis_name,
                             parameterization=parameterization,
                             analysis_config=analysis_config,
                             config_file=self.config_file,
                         )
-                        emulation.fit_emulators(emulation_config)
+                        base.fit_emulators(emulation_config)
                         progress.update(emulation_task, advance=100, visible=False)
 
                     # Run MCMC
@@ -200,7 +201,7 @@ class SteerAnalysis(common_base.CommonBase):
                 if self.plot["input_data"]:
                     logger.info('------------------------------------------------------------------------')
                     logger.info(f'Plotting input data for {analysis_name}_{parameterization}...')
-                    emulation_config = emulation.EmulationConfig.from_config_file(
+                    emulation_config = base.EmulationConfig.from_config_file(
                         analysis_name=analysis_name,
                         parameterization=parameterization,
                         analysis_config=analysis_config,
@@ -214,7 +215,7 @@ class SteerAnalysis(common_base.CommonBase):
 
                     logger.info('------------------------------------------------------------------------')
                     logger.info(f'Plotting emulators for {analysis_name}_{parameterization}...')
-                    emulation_config = emulation.EmulationConfig.from_config_file(
+                    emulation_config = base.EmulationConfig.from_config_file(
                         analysis_name=analysis_name,
                         parameterization=parameterization,
                         analysis_config=analysis_config,

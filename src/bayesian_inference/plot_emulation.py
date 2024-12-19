@@ -16,7 +16,7 @@ import seaborn as sns
 sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
 from bayesian_inference import data_IO
-from bayesian_inference import emulation
+from bayesian_inference.emulation import base
 from bayesian_inference import plot_utils
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def plot(config):
         if not os.path.exists(emulation_group_config.emulation_outputfile):
             logger.info(f'Emulator output does not exist: {emulation_group_config.emulation_outputfile}')
             continue
-        emulation_results[emulation_group_name] = emulation.read_emulators(emulation_group_config)
+        emulation_results[emulation_group_name] = base.read_emulators(emulation_group_config)
 
         # Plot output dir
         plot_dir = os.path.join(emulation_group_config.output_dir, f'plot_emulation_group_{emulation_group_name}')
@@ -309,8 +309,8 @@ def _plot_emulator_observables(results, config, plot_dir, validation_set=False):
     Y_dict = data_IO.observable_dict_from_matrix(Y, observables, config=config, validation_set=validation_set, observable_filter=config.observable_filter)
 
     # Get emulator predictions
-    emulator_predictions = emulation.predict_emulation_group(design, results, config)
-    
+    emulator_predictions = base.predict_emulation_group(design, results, config)
+
     emulator_predictions_dict = data_IO.observable_dict_from_matrix(emulator_predictions['central_value'],
                                                                     observables,
                                                                     validation_set=validation_set,
@@ -354,7 +354,7 @@ def _plot_emulator_residuals(results, config, plot_dir, validation_set=False):
     Y_dict = data_IO.observable_dict_from_matrix(Y, observables, config=config, validation_set=validation_set, observable_filter=config.observable_filter)
 
     # Get emulator predictions
-    emulator_predictions = emulation.predict_emulation_group(design, results, config)
+    emulator_predictions = base.predict_emulation_group(design, results, config)
     emulator_predictions_dict = data_IO.observable_dict_from_matrix(emulator_predictions['central_value'],
                                                                     observables,
                                                                     cov=emulator_predictions['cov'],

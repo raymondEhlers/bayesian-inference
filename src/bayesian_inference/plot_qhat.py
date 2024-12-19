@@ -13,7 +13,8 @@ import numpy as np
 import numpy.typing as npt
 import seaborn as sns
 
-from bayesian_inference import data_IO, emulation, mcmc, plot_utils
+from bayesian_inference import data_IO, mcmc, plot_utils
+from bayesian_inference.emulation import base
 
 sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
@@ -223,15 +224,15 @@ def _plot_single_parameter_observable_sensitivity(map_parameters, i_parameter, p
     x_prime = np.expand_dims(x_prime, axis=0)
 
     # Get emulator predictions at the two points
-    emulation_config = emulation.EmulationConfig.from_config_file(
+    emulation_config = base.EmulationConfig.from_config_file(
         analysis_name=config.analysis_name,
         parameterization=config.parameterization,
         analysis_config=config.analysis_config,
         config_file=config.config_file,
     )
     emulation_results = emulation_config.read_all_emulator_groups()
-    emulator_predictions_x = emulation.predict(x, emulation_config, emulation_group_results=emulation_results)
-    emulator_predictions_x_prime = emulation.predict(x_prime, emulation_config, emulation_group_results=emulation_results)
+    emulator_predictions_x = base.predict(x, emulation_config, emulation_group_results=emulation_results)
+    emulator_predictions_x_prime = base.predict(x_prime, emulation_config, emulation_group_results=emulation_results)
 
     # Convert to dict: emulator_predictions[observable_label]
     observables = data_IO.read_dict_from_h5(config.output_dir, 'observables.h5', verbose=False)

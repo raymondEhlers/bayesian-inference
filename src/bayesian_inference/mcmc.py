@@ -22,7 +22,8 @@ import numpy as np
 import numpy.typing as npt
 import yaml
 
-from bayesian_inference import common_base, data_IO, emulation, log_posterior
+from bayesian_inference import common_base, data_IO, log_posterior
+from bayesian_inference.emulation import base
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def run_mcmc(config: MCMCConfig, closure_index: int =-1) -> None:
     ndim = len(names)
 
     # Load emulators
-    emulation_config = emulation.EmulationConfig.from_config_file(
+    emulation_config = base.EmulationConfig.from_config_file(
         analysis_name=config.analysis_name,
         parameterization=config.parameterization,
         analysis_config=config.analysis_config,
@@ -54,7 +55,7 @@ def run_mcmc(config: MCMCConfig, closure_index: int =-1) -> None:
     emulation_results = emulation_config.read_all_emulator_groups()
 
     # Pre-compute the predictive variance due to PC truncation, since it is independent of theta.
-    emulator_cov_unexplained = emulation.compute_emulator_cov_unexplained(emulation_config, emulation_results)
+    emulator_cov_unexplained = base.compute_emulator_cov_unexplained(emulation_config, emulation_results)
 
     # Load experimental data into arrays: experimental_results['y'/'y_err'] (n_features,)
     # In the case of a closure test, we use the pseudodata from the validation design point
@@ -143,7 +144,7 @@ def map_parameters(posterior, method='quantile'):
 
 def _run_using_emcee(
     config: MCMCConfig,
-    emulation_config: emulation.EmulationConfig,
+    emulation_config: base.EmulationConfig,
     emulation_results: dict[str, dict[str, npt.NDArray[np.float64]]],
     emulator_cov_unexplained: dict,
     experimental_results: dict,
@@ -267,7 +268,7 @@ class LoggingEnsembleSampler(emcee.EnsembleSampler):
 
 def _run_using_pocoMC(
     config: MCMCConfig,
-    emulation_config: emulation.EmulationConfig,
+    emulation_config: base.EmulationConfig,
     emulation_results: dict[str, dict[str, npt.NDArray[np.float64]]],
     emulator_cov_unexplained: dict,
     experimental_results: dict,

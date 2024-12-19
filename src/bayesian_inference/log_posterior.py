@@ -14,14 +14,14 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import lapack
 
-from bayesian_inference import emulation
+from bayesian_inference.emulation import base
 
 logger = logging.getLogger(__name__)
 
 
 g_min: npt.NDArray[np.float64] = None
 g_max: npt.NDArray[np.float64] = None
-g_emulation_config: emulation.EmulationConfig = None
+g_emulation_config: base.EmulationConfig = None
 g_emulation_results: dict[str, dict[str, npt.NDArray[np.float64]]] = None
 g_experimental_results: dict = None
 g_emulator_cov_unexplained: dict = None
@@ -81,7 +81,7 @@ def log_posterior(X, *, set_to_infinite_outside_bounds: bool = True) -> npt.NDAr
         # Returns dict of matrices of emulator predictions:
         #     emulator_predictions['central_value'] -- (n_samples, n_features)
         #     emulator_predictions['cov'] -- (n_samples, n_features, n_features)
-        emulator_predictions = emulation.predict(X[inside], g_emulation_config,
+        emulator_predictions = base.predict(X[inside], g_emulation_config,
                                                  emulation_group_results=g_emulation_results,
                                                  emulator_cov_unexplained=g_emulator_cov_unexplained)
 
