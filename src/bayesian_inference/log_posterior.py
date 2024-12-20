@@ -1,14 +1,17 @@
 """Define the likelihood separately for performance reasons
 
-In doing so, we can use global variables. This isn't a nice thing to do, but it may improve MCMC performance
-during multiprocessing.
+In doing so, we can use global variables. This isn't a nice thing to do from a coding perspective,
+but it gives a significant improvement in MCMC performance during multiprocessing.
+For the initial concept, see: https://emcee.readthedocs.io/en/stable/tutorials/parallel/#parallel
 
-
+.. codeauthor:: Raymond Ehlers <raymond.ehlers@cern.ch>, LBL/UCB
+.. codeauthor:: James Mulligan
 """
 
 import logging
 
 import numpy as np
+import numpy.typing as npt
 from scipy.linalg import lapack
 
 from bayesian_inference import emulation
@@ -16,30 +19,30 @@ from bayesian_inference import emulation
 logger = logging.getLogger(__name__)
 
 
-min = None
-max = None
-emulation_config = None
-emulation_results = None
-experimental_results = None
-emulator_cov_unexplained = None
+g_min: npt.NDArray[np.float64] = None
+g_max: npt.NDArray[np.float64] = None
+g_emulation_config: emulation.EmulationConfig = None
+g_emulation_results: dict[str, dict[str, npt.NDArray[np.float64]]] = None
+g_experimental_results: dict = None
+g_emulator_cov_unexplained: dict = None
 
 def initialize_pool_variables(local_min, local_max, local_emulation_config, local_emulation_results, local_experimental_results, local_emulator_cov_unexplained) -> None:
-    global min 
-    global max
-    global emulation_config
-    global emulation_results
-    global experimental_results
-    global emulator_cov_unexplained
-    min = local_min
-    max = local_max
-    emulation_config = local_emulation_config
-    emulation_results = local_emulation_results
-    experimental_results = local_experimental_results
-    emulator_cov_unexplained = local_emulator_cov_unexplained
+    global g_min  # noqa: PLW0603
+    global g_max  # noqa: PLW0603
+    global g_emulation_config  # noqa: PLW0603
+    global g_emulation_results  # noqa: PLW0603
+    global g_experimental_results  # noqa: PLW0603
+    global g_emulator_cov_unexplained  # noqa: PLW0603
+    g_min = local_min
+    g_max = local_max
+    g_emulation_config = local_emulation_config
+    g_emulation_results = local_emulation_results
+    g_experimental_results = local_experimental_results
+    g_emulator_cov_unexplained = local_emulator_cov_unexplained
 
 
 #---------------------------------------------------------------
-def log_posterior(X):
+def log_posterior(X, *, set_to_infinite_outside_bounds: bool = True) -> npt.NDArray[np.float64]:
     """
     Function to evaluate the log-posterior for a given set of input parameters.
 
@@ -60,26 +63,27 @@ def log_posterior(X):
     log_posterior = np.zeros(X.shape[0])
 
     # Check if any samples are outside the parameter bounds, and set log-posterior to -inf for those
-    inside = np.all((X > min) & (X < max), axis=1)
-    log_posterior[~inside] = -np.inf
+    inside = np.all((X > g_min) & (X < g_max), axis=1)  # noqa: SIM300
+    # -1e300 is apparently preferred for pocoMC
+    log_posterior[~inside] = -np.inf if set_to_infinite_outside_bounds else -1e300
 
     # Evaluate log-posterior for samples inside parameter bounds
     n_samples = np.count_nonzero(inside)
-    n_features = experimental_results['y'].shape[0]
+    n_features = g_experimental_results['y'].shape[0]
 
     if n_samples > 0:
 
         # Get experimental data
-        data_y = experimental_results['y']
-        data_y_err = experimental_results['y_err']
+        data_y = g_experimental_results['y']
+        data_y_err = g_experimental_results['y_err']
 
         # Compute emulator prediction
         # Returns dict of matrices of emulator predictions:
         #     emulator_predictions['central_value'] -- (n_samples, n_features)
         #     emulator_predictions['cov'] -- (n_samples, n_features, n_features)
-        emulator_predictions = emulation.predict(X[inside], emulation_config, 
-                                                 emulation_group_results=emulation_results,
-                                                 emulator_cov_unexplained=emulator_cov_unexplained)
+        emulator_predictions = emulation.predict(X[inside], g_emulation_config,
+                                                 emulation_group_results=g_emulation_results,
+                                                 emulator_cov_unexplained=g_emulator_cov_unexplained)
 
         # Construct array to store the difference between emulator prediction and experimental data
         # (using broadcasting to subtract each data point from each emulator prediction)
@@ -87,7 +91,7 @@ def log_posterior(X):
         dY = emulator_predictions['central_value'] - data_y
 
         # Construct the covariance matrix
-        # TODO: include full experimental data covariance matrix -- currently we only include uncorrelated data uncertainty
+        # NOTE-STAT TODO: include full experimental data covariance matrix -- currently we only include uncorrelated data uncertainty
         #-------------------------
         covariance_matrix = np.zeros((n_samples, n_features, n_features))
         covariance_matrix += emulator_predictions['cov']
@@ -97,6 +101,8 @@ def log_posterior(X):
         # We take constant priors, so the log-likelihood is just the log-posterior
         # (since above we set the log-posterior to -inf for samples outside the parameter bounds)
         log_posterior[inside] += list(map(_loglikelihood, dY, covariance_matrix))
+
+        # NOTE-STAT: We don't support the extra_std term here.
 
     return log_posterior
 
@@ -123,24 +129,21 @@ def _loglikelihood(y, cov):
     L, info = lapack.dpotrf(cov, clean=False)
 
     if info < 0:
-        raise ValueError(
-            'lapack dpotrf error: '
-            'the {}-th argument had an illegal value'.format(-info)
-        )
-    elif info < 0:
-        raise np.linalg.LinAlgError(
-            'lapack dpotrf error: '
-            'the leading minor of order {} is not positive definite'
-            .format(info)
-        )
+        msg = 'lapack dpotrf error: '
+        msg += f'the {-info}-th argument had an illegal value'
+        raise ValueError(msg)
+    if info < 0:
+        msg = 'lapack dpotrf error: '
+        msg += f'the leading minor of order {info} is not positive definite'
+        raise np.linalg.LinAlgError(msg)
 
     # Solve for alpha = cov^-1.y using the Cholesky decomp.
     alpha, info = lapack.dpotrs(L, y)
 
     if info != 0:
+        msg = 'lapack dpotrs error: '
+        msg += f'the {-info}-th argument had an illegal value'
         raise ValueError(
-            'lapack dpotrs error: '
-            'the {}-th argument had an illegal value'.format(-info)
         )
 
     return -.5*np.dot(y, alpha) - np.log(L.diagonal()).sum()

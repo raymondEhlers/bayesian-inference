@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 '''
 Module with plotting utilities that can be shared across multiple other plotting modules
 

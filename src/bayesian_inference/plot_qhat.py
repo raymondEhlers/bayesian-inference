@@ -1,23 +1,21 @@
-#! /usr/bin/env python
 '''
-Module related to generate qhat plots
+Module related to generating qhat plots
 
 authors: J.Mulligan, R.Ehlers
 '''
 
 import logging
-import os
+from pathlib import Path
+from typing import Final
 
+import matplotlib.pyplot as plt
 import numpy as np
-
-from matplotlib import pyplot as plt
+import numpy.typing as npt
 import seaborn as sns
-sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
-from bayesian_inference import data_IO
-from bayesian_inference import emulation
-from bayesian_inference import mcmc
-from bayesian_inference import plot_utils
+from bayesian_inference import data_IO, emulation, mcmc, plot_utils
+
+sns.set_context('paper', rc={'font.size':18,'axes.titlesize':18,'axes.labelsize':18})
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,7 @@ def plot(config):
     '''
 
     # Check if mcmc.h5 file exists
-    if not os.path.exists(config.mcmc_outputfile):
+    if not Path(config.mcmc_outputfile).exists():
         logger.info(f'MCMC output does not exist: {config.mcmc_outputfile}')
         return
 
@@ -41,9 +39,8 @@ def plot(config):
     posterior = results['chain'].reshape((n_walkers*n_steps, n_params))
 
     # Plot output dir
-    plot_dir = os.path.join(config.output_dir, 'plot_qhat')
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
+    plot_dir = Path(config.output_dir) / 'plot_qhat'
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     # qhat plots
     plot_qhat(posterior, plot_dir, config, E=100, cred_level=0.9, n_samples=1000)
@@ -54,7 +51,7 @@ def plot(config):
 
 #---------------------------------------------------------------[]
 def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=5000, n_x=50,
-              plot_prior=True, plot_mean=True, plot_map=False, target_design_point=np.array([])):
+              plot_prior=True, plot_mean=True, plot_map=False, target_design_point: npt.NDArray[np.int64] | None = None):
     '''
     Plot qhat credible interval from posterior samples,
     as a function of either E or T (with the other held fixed)
@@ -67,12 +64,16 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     :param int n_x: number of T or E points to plot
     :param 1darray target_design_point: if closure test, design point corresponding to "truth" qhat value
     '''
+    # Validation
+    if target_design_point is None:
+        target_design_point = np.array([])
 
     # Sample posterior parameters without replacement
     if posterior.shape[0] < n_samples:
         n_samples = posterior.shape[0]
         logger.warning(f'Not enough posterior samples to plot {n_samples} samples, using {n_samples} instead')
-    idx = np.random.choice(posterior.shape[0], size=n_samples, replace=False)
+    rng = np.random.default_rng()
+    idx = rng.choice(posterior.shape[0], size=n_samples, replace=False)
     posterior_samples = posterior[idx,:]
 
     # Compute qhat for each sample (as well as MAP value), as a function of T or E
@@ -82,13 +83,13 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
         suffix = f'E{E}'
         label = f'E = {E} GeV'
         x_array = np.linspace(0.16, 0.5, n_x)
-        qhat_posteriors = np.array([qhat(posterior_samples, config, T=T, E=E) for T in x_array])
+        qhat_posteriors = np.array([qhat_over_T_cubed(posterior_samples, config, T=T, E=E) for T in x_array])
     elif T:
         xlabel = 'E (GeV)'
         suffix = f'T{T}'
         label = f'T = {T} GeV'
         x_array = np.linspace(5, 200, n_x)
-        qhat_posteriors = np.array([qhat(posterior_samples, config, T=T, E=E) for E in x_array])
+        qhat_posteriors = np.array([qhat_over_T_cubed(posterior_samples, config, T=T, E=E) for E in x_array])
 
     # Plot mean qhat values for each T or E
     if plot_mean:
@@ -99,9 +100,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     # Plot the MAP value as well for each T or E
     if plot_map:
         if E:
-            qhat_map = np.array([qhat(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for T in x_array])
+            qhat_map = np.array([qhat_over_T_cubed(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for T in x_array])
         elif T:
-            qhat_map = np.array([qhat(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for E in x_array])
+            qhat_map = np.array([qhat_over_T_cubed(mcmc.map_parameters(posterior_samples), config, T=T, E=E) for E in x_array])
         plt.plot(x_array, qhat_map, sns.xkcd_rgb['medium green'],
                 linewidth=2., linestyle='--', label='MAP')
 
@@ -121,9 +122,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
 
         # Compute qhat for each sample, as a function of T or E
         if E:
-            qhat_priors = np.array([qhat(prior_samples, config, T=T, E=E) for T in x_array])
+            qhat_priors = np.array([qhat_over_T_cubed(prior_samples, config, T=T, E=E) for T in x_array])
         elif T:
-            qhat_priors = np.array([qhat(prior_samples, config, T=T, E=E) for E in x_array])
+            qhat_priors = np.array([qhat_over_T_cubed(prior_samples, config, T=T, E=E) for E in x_array])
 
         # Get credible interval for each T or E
         h_prior = [mcmc.credible_interval(qhat_values, confidence=cred_level) for qhat_values in qhat_priors]
@@ -137,9 +138,9 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     #   boolean array (as a fcn of T or E) of whether the truth value is contained within credible region
     if target_design_point.any():
         if E:
-            qhat_truth = [qhat(target_design_point, config, T=T, E=E) for T in x_array]
+            qhat_truth = [qhat_over_T_cubed(target_design_point, config, T=T, E=E) for T in x_array]
         elif T:
-            qhat_truth = [qhat(target_design_point, config, T=T, E=E) for E in x_array]
+            qhat_truth = [qhat_over_T_cubed(target_design_point, config, T=T, E=E) for E in x_array]
         plt.plot(x_array, qhat_truth, sns.xkcd_rgb['pale red'],
                 linewidth=2., label='Target')
 
@@ -158,10 +159,12 @@ def plot_qhat(posterior, plot_dir, config, E=0, T=0, cred_level=0., n_samples=50
     elif plot_map:
         ymax = 2*max(qhat_map)
     axes = plt.gca()
-    axes.set_ylim([ymin, ymax])
-    plt.legend(title=f'{label}, {config.parameterization}', title_fontsize=12,
-               loc='upper right', fontsize=12)
+    #axes.set_ylim([ymin, ymax])
+    axes.set_ylim([0, 12])
+    plt.legend(title=f'{label}', title_fontsize=12,
+               loc='upper right', fontsize=12, frameon=False)
 
+    plt.tight_layout()
     plt.savefig(f'{plot_dir}/qhat_{suffix}.pdf')
     plt.close('all')
 
@@ -258,12 +261,42 @@ def _plot_single_parameter_observable_sensitivity(map_parameters, i_parameter, p
                                       linewidth=1, ymin=-5, ymax=5, ylabel=ylabel, plot_exp_data=False, bar_plot=True)
 
 #---------------------------------------------------------------
-def qhat(posterior_samples, config, T=0, E=0) -> float:
+def _running_alpha_s(mu_square: float | npt.NDArray[np.float64], alpha_s: float | npt.NDArray[np.float64]) -> float | npt.NDArray[np.float64]:
+    """ Running alpha_s for HTL-qhat
+
+    Extracted from MATTER:
+    https://github.com/JETSCAPE/JETSCAPE/blob/935b69291f0fd319f42dc6a9fb5960a4f814e16f/src/jet/Matter.cc#L3944-L3953
+
+    We have a separate implementation verified by the theorists:
+    https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L10-L19
+
+    Note:
+        lambda_square_QCD_HTL is determined using alpha^fix_s such that the running alpha_s
+        coincide with alpha^fix_s at scale mu^2= 1 GeV^2.
+
+    Args:
+        mu_square: Virtuality of the parton.
+        alpha_s: Coupling constant (here, this is will be alpha^fix_s).
+
+    Returns:
+        float: running alpha_s
+    """
+    if mu_square <= 1.0:
+        return alpha_s
+
+    active_flavor: Final[int] = 3
+    square_lambda_QCD_HTL = np.exp(-12 * np.pi / ((33 - 2 * active_flavor) * alpha_s))
+    return 12 * np.pi / ((33 - 2 * active_flavor) * np.log(mu_square / square_lambda_QCD_HTL))
+
+
+#---------------------------------------------------------------
+def qhat_over_T_cubed(posterior_samples, config, T=0, E=0) -> float:
     '''
     Evaluate qhat/T^3 from posterior samples of parameters,
     for fixed E and T
 
-    See: https://github.com/raymondEhlers/STAT/blob/1b0df83a9fd479f8110fd326ae26c0ce002a1109/run_analysis_base.py
+    See: https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L21-L35
+    (which itself is derived from the MATTER code in jetscape).
 
     :param 2darray parameters: posterior samples of parameters -- shape (n_samples, n_params)
     :return 1darray: qhat/T^3 -- shape (n_samples,)
@@ -274,25 +307,33 @@ def qhat(posterior_samples, config, T=0, E=0) -> float:
 
     if config.parameterization == "exponential":
 
+        # Inputs
         alpha_s_fix = posterior_samples[:,0]
-        active_flavor = 3
-        C_a = 3.0  # Extracted from JetScapeConstants
+        # Constants
+        active_flavor: Final[int] = 3
+        # The JETSCAPE framework calculates qhat using the gluon Casimir factor, but
+        # we by convention we typically report the quark qhat value, so we need to use
+        # the quark Casimir factor.
+        C_a: Final[float] = 4.0 / 3.0
 
         # From GeneralQhatFunction
-        debye_mass_square = alpha_s_fix * 4 * np.pi * np.power(T, 2.0) * (6.0 + active_flavor) / 6.0
-        scale_net = 2 * E * T
-        if scale_net < 1.0:
-            scale_net = 1.0
+        debye_mass_square = alpha_s_fix * 4 * np.pi * np.power(T, 2.0) * (6.0 + active_flavor) / 6
+        # This is the virtuality of the parton
+        # See info from Abhijit here: https://jetscapeworkspace.slack.com/archives/C025X5NE9SN/p1648404101376299
+        # as well as Yi's code:
+        # https://github.com/FHead/PhysicsJetScape/blob/c3c9adfeee72e1f9ce34728e174e35ca8a70065b/JetRAAPaper/26363_HPPaperPlots/QHat.h#L21-L35
+        scale_net = np.maximum(2 * E * T, 1.0)
 
-        # alpha_s should be taken as 2*E*T, per Abhijit
-        # See: https://jetscapeworkspace.slack.com/archives/C025X5NE9SN/p1648404101376299
-        square_lambda_QCD_HTL = np.exp( -12.0 * np.pi/( (33 - 2 * active_flavor) * scale_net) )
-        running_alpha_s = 12.0 * np.pi/( (33.0 - 2.0 * active_flavor) * np.log(scale_net/square_lambda_QCD_HTL) )
-        if scale_net < 1.0:
-            running_alpha_s = scale_net
+        running_alpha_s = _running_alpha_s(scale_net, alpha_s_fix)
         answer = (C_a * 50.4864 / np.pi) * running_alpha_s * alpha_s_fix * np.abs(np.log(scale_net / debye_mass_square))
 
-        return answer * 0.19732698   # 1/GeV to fm
+        # If we wanted to return just qhat (rather than qhat/T^3), we could use the following conversion:
+        #return answer * 0.19732698   # 1/GeV to fm
+        # qhat/T^3 is dimensionless, so we don't need to convert units
+        return answer  # noqa: RET504
+
+    msg = f"qhat_over_T_cubed not implemented for parameterization: {config.parameterization}"
+    raise RuntimeError(msg)
 
 #---------------------------------------------------------------
 def _generate_prior_samples(config, n_samples=100):
@@ -316,7 +357,8 @@ def _generate_prior_samples(config, n_samples=100):
             parameter_max[i] = np.log(parameter_max[i])
 
     # Generate uniform samples
-    samples = np.random.uniform(parameter_min, parameter_max, (n_samples, n_params))
+    rng = np.random.default_rng()
+    samples = rng.uniform(parameter_min, parameter_max, (n_samples, n_params))
 
     # Transform log(c1,c2,c3) back to c1,c2,c3
     for i,name in enumerate(names):

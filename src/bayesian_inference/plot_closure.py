@@ -110,7 +110,7 @@ def plot(config):
             theta_truth = target_design_point[0][i]
             closure_summary[parameter]['theta_truth'][design_point_index] = theta_truth
             closure_summary[parameter]['theta_closure_array'][design_point_index] = (theta_truth > credible_interval[0]) and (theta_truth < credible_interval[1])
-            closure_summary[parameter]['qhat_mean'][design_point_index] = np.mean(plot_qhat.qhat(target_design_point, config, T=T, E=E))
+            closure_summary[parameter]['qhat_mean'][design_point_index] = np.mean(plot_qhat.qhat_over_T_cubed(target_design_point, config, T=T, E=E))
 
     # Create summary plots over all closure points
     plot_dir = os.path.join(config.output_dir, 'closure/summary_plots')

@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 '''
 Module related to emulators, with functionality to train and call emulators for a given analysis run
 
@@ -16,20 +15,19 @@ from __future__ import annotations
 
 import logging
 import os
-import yaml
+import pickle
 from pathlib import Path
 from typing import Any
 
 import attrs
 import numpy as np
 import numpy.typing as npt
-import pickle
-import sklearn.preprocessing as sklearn_preprocessing
 import sklearn.decomposition as sklearn_decomposition
 import sklearn.gaussian_process as sklearn_gaussian_process
+import sklearn.preprocessing as sklearn_preprocessing
+import yaml
 
-from bayesian_inference import data_IO
-from bayesian_inference import common_base
+from bayesian_inference import common_base, data_IO
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +59,9 @@ def fit_emulator_group(config: EmulationGroupConfig) -> dict[str, Any]:
     '''
 
     # Check if emulator already exists
-    if os.path.exists(config.emulation_outputfile):
+    if config.emulation_outputfile.exists():
         if config.force_retrain:
-            os.remove(config.emulation_outputfile)
+            config.emulation_outputfile.unlink()
             logger.info(f'Removed {config.emulation_outputfile}')
         else:
             logger.info(f'Emulators already exist: {config.emulation_outputfile} (to force retrain, set force_retrain: True)')
@@ -72,7 +70,7 @@ def fit_emulator_group(config: EmulationGroupConfig) -> dict[str, Any]:
     # Initialize predictions into a single 2D array: (design_point_index, observable_bins) i.e. (n_samples, n_features)
     # A consistent order of observables is enforced internally in data_IO
     # NOTE: One sample corresponds to one design point, while one feature is one bin of one observable
-    logger.info(f'Doing PCA...')
+    logger.info('Doing PCA...')
     Y = data_IO.predictions_matrix_from_h5(config.output_dir, filename=config.observables_filename, observable_filter=config.observable_filter)
 
     # Use sklearn to:
@@ -112,6 +110,8 @@ def fit_emulator_group(config: EmulationGroupConfig) -> dict[str, Any]:
     max_n_components = config.max_n_components_to_calculate
     if max_n_components is not None:
         logger.info(f"Running with max n_pc={max_n_components}")
+    # NOTE-STAT: Whiten=True, but here, Whiten=False.
+    # NOTE-STAT: RJE thinks this doesn't matter, based on the comments above.
     pca = sklearn_decomposition.PCA(n_components=max_n_components, svd_solver='full', whiten=False) # Include all PCs here, so we can access them later
     # Scale data and perform PCA
     Y_pca = pca.fit_transform(scaler.fit_transform(Y))
@@ -164,7 +164,7 @@ def fit_emulator_group(config: EmulationGroupConfig) -> dict[str, Any]:
     # Fit a GP (optimize the kernel hyperparameters) to map each design point to each of its PCs
     # Note that Y_PCA=(n_samples, n_components), so each PC corresponds to a row (i.e. a column of Y_PCA.T)
     logger.info("")
-    logger.info(f'Fitting GPs...')
+    logger.info('Fitting GPs...')
     logger.info(f'  The design has {design.shape[1]} parameters')
     emulators = [sklearn_gaussian_process.GaussianProcessRegressor(kernel=kernel,
                                                              alpha=config.alpha,
@@ -199,7 +199,8 @@ def read_emulators(config: EmulationGroupConfig) -> dict[str, Any]:
 
     with filename.open("rb") as f:
         results = pickle.load(f)
-    return results
+    return results  # noqa: RET504
+
 
 ####################################################################################################################
 def write_emulators(config: EmulationGroupConfig, output_dict: dict[str, Any]) -> None:
@@ -208,10 +209,11 @@ def write_emulators(config: EmulationGroupConfig, output_dict: dict[str, Any]) -
     filename = Path(config.emulation_outputfile)
 
     with filename.open('wb') as f:
-	    pickle.dump(output_dict, f)
+        pickle.dump(output_dict, f)
+
 
 ####################################################################################################################
-def compute_emulator_cov_unexplained(emulation_config, emulation_results):
+def compute_emulator_cov_unexplained(emulation_config, emulation_results) -> dict:
     '''
     Compute the predictive variance due to PC truncation, for all emulator groups.
     See further details in compute_emulator_group_cov_unexplained().
@@ -222,6 +224,8 @@ def compute_emulator_cov_unexplained(emulation_config, emulation_results):
     for emulation_group_name, emulation_group_config in emulation_config.emulation_groups_config.items():
         emulation_group_result = emulation_results.get(emulation_group_name)
         emulator_cov_unexplained[emulation_group_name] = compute_emulator_group_cov_unexplained(emulation_group_config, emulation_group_result)
+    return emulator_cov_unexplained
+
 
 ####################################################################################################################
 def compute_emulator_group_cov_unexplained(emulation_group_config, emulation_group_result):
@@ -243,12 +247,15 @@ def compute_emulator_group_cov_unexplained(emulation_group_config, emulation_gro
     We will generally pre-compute this once in mcmc.py to save time, although we define this function
     here to allow us to re-compute it as needed if it is not pre-computed (e.g. when plotting).
     '''
+    # TODO: NOTE-STAT: Compare this more carefully with STAT L145 and on.
     pca = emulation_group_result['PCA']['pca']
     S_unexplained = pca.components_.T[:,emulation_group_config.n_pc:]
     D_unexplained = np.diag(pca.explained_variance_[emulation_group_config.n_pc:])
     emulator_cov_unexplained = S_unexplained.dot(D_unexplained.dot(S_unexplained.T))
 
-    return emulator_cov_unexplained
+    # NOTE-STAT: bayesian-inference does not include a small term for numerical stability
+    return emulator_cov_unexplained  # noqa: RET504
+
 
 ####################################################################################################################
 def nd_block_diag(arrays):
@@ -351,7 +358,7 @@ class SortEmulationGroupObservables:
         :return: Converted matrix for each available value type.
         """
         if self._available_value_types is None:
-            self._available_value_types = set([
+            self._available_value_types = set([  # noqa: C403
                 value_type
                 for group in group_matrices.values()
                 for value_type in group
@@ -443,9 +450,9 @@ def predict(parameters: npt.NDArray[np.float64],
 
         # Compute unexplained variance due to PC truncation for this emulator group, if not already precomputed
         if emulator_cov_unexplained:
-            emulator_group_cov_unexplained=emulator_cov_unexplained[emulation_group_name]
+            emulator_group_cov_unexplained = emulator_cov_unexplained[emulation_group_name]
         else:
-            emulator_group_cov_unexplained=compute_emulator_group_cov_unexplained(emulation_group_config, emulation_group_result)
+            emulator_group_cov_unexplained = compute_emulator_group_cov_unexplained(emulation_group_config, emulation_group_result)
 
         predict_output[emulation_group_name] = predict_emulation_group(
             parameters,
@@ -519,6 +526,7 @@ def predict_emulation_group(parameters, results, emulation_group_config, emulato
     # So C_Y[i] = S * C_Y_PCA[i] * S^T.
     # Note: should be equivalent to: https://github.com/jdmulligan/STAT/blob/master/src/emulator.py#L145
     # TODO: one can make this faster with broadcasting/einsum
+    # TODO: NOTE-STAT: Compare this more carefully with STAT L286 and on.
     n_features = pca.components_.shape[1]
     S = pca.components_.T[:,:emulation_group_config.n_pc]
     emulator_cov_reconstructed_scaled = np.zeros((n_samples, n_features, n_features))
@@ -560,7 +568,7 @@ class EmulationGroupConfig(common_base.CommonBase):
         self.analysis_config = analysis_config
         self.config_file = config_file
 
-        with open(self.config_file, 'r') as stream:
+        with open(self.config_file) as stream:
             config = yaml.safe_load(stream)
 
         # Observable inputs
@@ -591,13 +599,14 @@ class EmulationGroupConfig(common_base.CommonBase):
         # Validation for noise configuration
         if 'noise' in self.active_kernels:
             # Check we have the appropriate keys
-            assert [k in self.active_kernels['noise'].keys() for k in ["type", "args"]], "Noise configuration must have keys 'type' and 'args'"
+            assert [k in self.active_kernels['noise'] for k in ["type", "args"]], "Noise configuration must have keys 'type' and 'args'"
             if self.active_kernels['noise']["type"] == "white":
                 # Validate arguments
                 # We don't want to do too much since we'll just be reinventing the wheel, but a bit can be helpful.
-                assert set(self.active_kernels['noise']["args"]) == set(["noise_level", "noise_level_bounds"]), "Must provide arguments 'noise_level' and 'noise_level_bounds' for white noise kernel"
+                assert set(self.active_kernels['noise']["args"]) == set(["noise_level", "noise_level_bounds"]), "Must provide arguments 'noise_level' and 'noise_level_bounds' for white noise kernel"  # noqa: C405
             else:
-                raise ValueError("Unsupported noise kernel")
+                msg = "Unsupported noise kernel"
+                raise ValueError(msg)
 
         # GPR
         self.n_restarts = emulator_configuration["GPR"]['n_restarts']
@@ -615,11 +624,11 @@ class EmulationGroupConfig(common_base.CommonBase):
             )
 
         # Output options
-        self.output_dir = os.path.join(config['output_dir'], f'{analysis_name}_{parameterization}')
+        self.output_dir = Path(config['output_dir']) / f'{analysis_name}_{parameterization}'
         emulation_outputfile_name = 'emulation.pkl'
         if emulation_group_name is not None:
             emulation_outputfile_name = f'emulation_group_{emulation_group_name}.pkl'
-        self.emulation_outputfile = os.path.join(self.output_dir, emulation_outputfile_name)
+        self.emulation_outputfile = Path(self.output_dir) /  emulation_outputfile_name
 
 @attrs.define
 class EmulationConfig(common_base.CommonBase):
@@ -685,7 +694,8 @@ class EmulationConfig(common_base.CommonBase):
     def observable_filter(self) -> data_IO.ObservableFilter:
         if self._observable_filter is None:
             if not self.emulation_groups_config:
-                raise ValueError("Need to specify emulation groups to provide an observable filter")
+                msg = "Need to specify emulation groups to provide an observable filter"
+                raise ValueError(msg)
             # Accumulate the include and exclude lists from all emulation groups
             include_list: list[str] = []
             exclude_list: list[str] = self.config.get("global_observable_exclude_list", [])
@@ -703,7 +713,8 @@ class EmulationConfig(common_base.CommonBase):
     def sort_observables_in_matrix(self) -> SortEmulationGroupObservables:
         if self._sort_observables_in_matrix is None:
             if not self.emulation_groups_config:
-                raise ValueError("Need to specify emulation groups to provide an sorting for observable group observables")
+                msg = "Need to specify emulation groups to provide an sorting for observable group observables"
+                raise ValueError(msg)
             # Accumulate the include and exclude lists from all emulation groups
             self._sort_observables_in_matrix = SortEmulationGroupObservables.learn_mapping(self)
         return self._sort_observables_in_matrix
