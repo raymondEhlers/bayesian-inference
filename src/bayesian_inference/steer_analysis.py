@@ -9,13 +9,23 @@ import argparse
 import logging
 import os
 import shutil
-import yaml
 from pathlib import Path
 
-from bayesian_inference import data_IO, preprocess_input_data, mcmc
-from bayesian_inference import plot_input_data, plot_emulation, plot_mcmc, plot_qhat, plot_closure, plot_analyses
+import yaml
 
-from bayesian_inference import common_base, helpers
+from bayesian_inference import (
+    common_base,
+    data_IO,
+    helpers,
+    mcmc,
+    plot_analyses,
+    plot_closure,
+    plot_emulation,
+    plot_input_data,
+    plot_mcmc,
+    plot_qhat,
+    preprocess_input_data,
+)
 from bayesian_inference.emulation import base
 
 logger = logging.getLogger(__name__)
@@ -41,7 +51,7 @@ class SteerAnalysis(common_base.CommonBase):
     def initialize(self):
         logger.info('Initializing class objects')
 
-        with open(self.config_file, 'r') as stream:
+        with Path(self.config_file).open() as stream:
             config = yaml.safe_load(stream)
 
         self.output_dir = config['output_dir']

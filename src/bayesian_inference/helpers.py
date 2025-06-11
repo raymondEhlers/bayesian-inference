@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 import rich
 import rich.progress
@@ -31,9 +30,9 @@ class RichModuleNameHandler(RichHandler):
         self,
         *,
         record: logging.LogRecord,
-        traceback: Optional[rich.traceback.Traceback],
-        message_renderable: "rich.console.ConsoleRenderable",
-    ) -> "rich.console.ConsoleRenderable":
+        traceback: rich.traceback.Traceback | None,
+        message_renderable: rich.console.ConsoleRenderable,
+    ) -> rich.console.ConsoleRenderable:
         """Render log for display.
 
         Args:

@@ -4,17 +4,17 @@
 
 output_dir: 'output/20230829-QM'
 
-initialize_observables: True
-preprocess_input_data: True
-fit_emulators: True
-run_mcmc: True
+initialize_observables: False
+preprocess_input_data: False
+fit_emulators: False
+run_mcmc: False
 run_closure_tests: False
 
 plot:
   input_data: False
   emulators: False
-  mcmc: True
-  qhat: True
+  mcmc: False
+  qhat: False
   closure_tests: False
   across_analyses: True
 
@@ -22,7 +22,7 @@ debug_level: 0
 
 #-------------------------------------------
 # The design points, predictions, and experimental data are located in tables produced by the aggregation machinery
-observable_table_dir: '/rstorage/jetscape/STAT-Bayesian/Analysis1/20230116/tables'
+observable_table_dir: 'data/20230116/tables'
 
 # We make use of some info in the JETSCAPE-analysis config that was used to aggregate/plot observables
 observable_config_dir: '../jetscape-analysis/config'

@@ -54,15 +54,15 @@ def _register_emulator_module(name: str, module: Any) -> None:
     """
     Register an emulator module with a given name.
     """
-    _validate_emulator(name)
+    _validate_emulator(module)
+    logger.info(f"Registering emulator module {name}")
     _emulators[name] = module
 
 
-def _validate_emulator(name: str) -> None:
+def _validate_emulator(name: str, module: Any) -> None:
     """
     Validate that an emulator module follows the expected interface.
     """
-    module = _emulators[name]
     if not hasattr(module, "fit_emulator"):
         msg = f"Emulator module {name} does not have a required 'fit_emulator' method"
         raise ValueError(msg)
@@ -70,7 +70,6 @@ def _validate_emulator(name: str) -> None:
     # if not hasattr(module, "predict"):
     #     msg = f"Emulator module {name} does not have a required 'predict' method"
     #     raise ValueError(msg)
-    _emulators[name] = module
 
 
 def fit_emulators(emulation_config: EmulationConfig) -> None:
